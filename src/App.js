@@ -192,17 +192,36 @@ class App extends Component {
     super(props);
 
     this.state = {
-      artigos: [
-        {
-          id: '1º artigo',
-          texto: '',
-        }
-      ]
+      artigos: [],
     };
 
     this.adicionaArtigo = this.adicionaArtigo.bind(this);
     this.removeArtigo = this.removeArtigo.bind(this);
     this.gerarEBaixar = this.gerarEBaixar.bind(this);
+  }
+
+  componentDidMount() {
+    let artigos;
+
+    try {
+      artigos = JSON.parse(sessionStorage['reference-gen']);
+    } catch(e) {
+      artigos = [
+        {
+          id: '1º artigo',
+          texto: '',
+        }
+      ];
+    }
+
+    this.setState(update(this.state, {
+      artigos: {$set: artigos},
+    }));
+
+    setInterval(() => {
+      let artigos = JSON.stringify(this.state.artigos);
+      sessionStorage['reference-gen'] = artigos;
+    }, 15000);
   }
 
   gerarEBaixar() {
@@ -275,16 +294,16 @@ class App extends Component {
 
     for(let artigo of artigos) {
       navs.push(
-        <Nav.Item>
+        <Nav.Item key={`nav-${artigo.id}`}>
           <Nav.Link eventKey={artigo.id}>{artigo.id}</Nav.Link>
         </Nav.Item>
       )
 
       tabs.push(
-        <Tab.Pane eventKey={artigo.id}>
+        <Tab.Pane eventKey={artigo.id} key={`tab-${artigo.id}`}>
           <div className="float-right mb-2">
             <Button variant="light" title="Ajustar acentuação" onClick={this.ajustar.bind(this, i)}>
-              <i class="fas fa-font"></i>
+              <i className="fas fa-font"></i>
             </Button>
           </div>
           <Form.Control
@@ -306,7 +325,7 @@ class App extends Component {
           <Row>
             <Col>
               <Button variant="success" title="Gerar e baixar CSV" onClick={this.gerarEBaixar}>
-                <i class="fas fa-download"></i> Gerar & Baixar
+                <i className="fas fa-download"></i> Gerar & Baixar
               </Button>
             </Col>
           </Row>
@@ -332,10 +351,10 @@ class App extends Component {
           <Row className="mt-4">
             <Col>
               <Button className="mr-2" variant="dark" title="Adicionar um artigo" onClick={this.adicionaArtigo}>
-                <i class="fas fa-plus-circle"></i>
+                <i className="fas fa-plus-circle"></i>
               </Button>
               <Button variant="warning" title="Remover um artigo" onClick={this.removeArtigo}>
-                <i class="fas fa-minus-circle"></i>
+                <i className="fas fa-minus-circle"></i>
               </Button>
             </Col>
           </Row>
