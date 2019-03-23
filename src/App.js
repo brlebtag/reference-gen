@@ -8,6 +8,8 @@ import Nav from 'react-bootstrap/Nav';
 import Button from 'react-bootstrap/Button';
 import update from 'immutability-helper';
 import Form from 'react-bootstrap/Form';
+import cheerio from 'cheerio';
+import { DateTime } from 'luxon';
 
 function ajustarAcentuacao(str) {
   const acentos = {
@@ -134,11 +136,36 @@ function ajustarAcentuacao(str) {
       '\¸C': 'Ç',
 
       '↵': 'ff',
-      '\\&': '\&\#038;',
+      // '\\&': '\&\#038;',
       '\“': '\"',
       '\”': '\"',
       '\´s': '\'s',
       '\´S': '\'S',
+
+      'ˇC': 'Č',
+      'ˇc': 'č',
+      'ˇS': 'Š',
+      'ˇs': 'š',
+      'ˇz': 'Ž',
+      'ˇz': 'ž',
+      'ˇG': 'Ğ',
+      'ˇg': 'ğ',
+      '˘A': 'Ă',
+      '˘a': 'ă',
+      '˝u': 'ű',
+      '˝U': 'Ű',
+      '˝o': 'ű',
+      '˝O': 'ő',
+      '¨y': 'ÿ',
+      '¨Y': 'Ÿ',
+      '´n': 'ń',
+      '´N': 'Ń',
+      '`n': 'ǹ',
+      '`N': 'Ǹ',
+      '~n': 'ñ',
+      '~N': 'Ñ',
+      '˜n': 'ñ',
+      '˜N': 'Ñ',
   };
 
   for(var acento in acentos) {
@@ -158,25 +185,54 @@ function formatar(str) {
 function quebrarReferencias(text) {
   const referencias = [];
   let referencia = '';
+  let curNum = '';
 
   const len = text.length;
-
-  debugger;
 
   for(let i = 0; i < len; i++) {
     let ch = text.charAt(i);
 
-    if (ch == ']') {
+    if (ch == '[') {
       i++;
       for(; i < len; i++) {
         ch = text.charAt(i);
+        if (ch == ']') {
+          if (isNaN(curNum)) {
+            referencia += `[${curNum}]`;
+          }
+          curNum = '';
+          i++;
+          break;
+        }
+        curNum += ch;
+      }
+
+      for(; i < len; i++) {
+        ch = text.charAt(i);
+
         if (ch == '[') {
           referencias.push(formatar(referencia));
           referencia = '';
+          i--;
           break;
         }
         referencia += ch;
       }
+      continue;
+    }
+
+    for(; i < len && text.charAt(i) == '\n'; i++);
+
+    for(; i < len; i++) {
+      ch = text.charAt(i);
+
+      if (ch == '[') {
+        referencias.push(formatar(referencia));
+        referencia = '';
+        i--;
+        break;
+      }
+      referencia += ch;
     }
   }
 
@@ -198,6 +254,10 @@ class App extends Component {
     this.adicionaArtigo = this.adicionaArtigo.bind(this);
     this.removeArtigo = this.removeArtigo.bind(this);
     this.gerarEBaixar = this.gerarEBaixar.bind(this);
+    this.onFileChanged = this.onFileChanged.bind(this);
+    this.onCarregarCSV = this.onCarregarCSV.bind(this);
+    this.limpar = this.limpar.bind(this);
+    this.xml = [];
   }
 
   componentDidMount() {
@@ -210,6 +270,8 @@ class App extends Component {
         {
           id: '1º artigo',
           texto: '',
+          total: 0,
+          titulo: '',
         }
       ];
     }
@@ -230,7 +292,7 @@ class App extends Component {
     let i = 0;
 
     for(let artigo of artigos) {
-      for(let referencia of quebrarReferencias(artigo.texto)) {
+      for(let referencia of artigo.texto.split('\n\n')) {
         csv += `${i+1}|${referencia}\n`;
       }      
       i++;
@@ -239,7 +301,7 @@ class App extends Component {
     let hiddenElement = document.createElement('a');
     hiddenElement.href = 'data:text/csv;charset=utf-8,' + encodeURI(csv);
     hiddenElement.target = '_blank';
-    hiddenElement.download = 'referencias.csv';
+    hiddenElement.download = `referencias-${DateTime.local().toFormat('dd-LL-yyyy-hh-mm-ss')}.csv`;
     hiddenElement.click();
   }
 
@@ -259,6 +321,8 @@ class App extends Component {
         $push: [{
           id: `${len + 1}º artigo`,
           texto: '',
+          total: 0,
+          titulo: this.xml[len] || '',
         }]
       }
     }));
@@ -286,6 +350,119 @@ class App extends Component {
     }));
   }
 
+  contarReferencias(i) {
+    const { artigos } = this.state;
+
+    const texto = artigos[i].texto;
+
+    this.setState(update(this.state, {
+      artigos: {
+        [i]: {total: {$set: (texto == '' ? 0 : 
+          (texto.match(/\n\n/g) || []).length + 1)
+        }},
+      }
+    }));
+  }
+
+  formatar(i) {
+    const { artigos } = this.state;
+
+    const formatado = quebrarReferencias(artigos[i].texto);
+
+    this.setState(update(this.state, {
+      artigos: {
+        [i]: {
+          texto: {$set: formatado.join('\n\n')},
+          total: {$set: formatado.length},
+        },
+      }
+    }));
+  }
+
+  onFileChanged(e) {
+    const file = e.target.files[0];
+
+    if (!file) return;
+
+    var reader = new FileReader();
+
+    reader.onload = e => {
+      const data = e.target.result;
+      const $ = cheerio.load(data);
+      const titles = $('issue articles article title[locale="pt_BR"]')
+        .map((i, el) => {
+          return $(el).text();
+        }).get();
+      this.xml = titles;
+
+      alert('Carregado!');
+
+      this.setState(update(this.state, {
+        artigos: artigos => artigos.map((artigo, i) => update(
+          artigo, {
+            titulo: {$set: titles[i] || ''},
+          }
+        ))
+      }));
+    };
+
+    reader.readAsText(file);
+  }
+
+  onCarregarCSV(e) {
+    const file = e.target.files[0];
+
+    if (!file) return;
+
+    var reader = new FileReader();
+
+    reader.onload = e => {
+      const result = e.target.result;
+      const linhas = result.split('\n');
+      const dict = {};
+      const artigos = [];
+
+      linhas.forEach(linha => {
+        if (linha == '') return;
+
+        const [num = '', referencia = ''] = linha.split('|') ;
+        const key = `${num} º artigo`;
+        if (!dict[key]) {
+          dict[key] = [];
+        }
+
+        dict[key].push(referencia);
+      });
+
+      for(let key in dict) {
+        const [num] = key.split(' º artigo');
+        const texto = dict[key].join('\n\n');
+
+        artigos.push({
+          id: key,
+          texto: texto,
+          total: (texto.match(/\n\n/g) || []).length + 1,
+          titulo: this.xml[num] || '',          
+        });
+      }
+      alert('Carregado!');
+
+      this.setState(update(this.state, {
+        artigos: {$set: artigos},
+      }));
+    };
+
+    reader.readAsText(file);
+  }
+
+  limpar() {
+    if (window.confirm("Você já baixou o XML antes de apagar?")) {
+      this.setState(update(this.state, {
+        artigos: {$set: []},
+      }))
+    }
+  }
+
   render() {
     const { artigos } = this.state;
     const navs = [];
@@ -302,17 +479,30 @@ class App extends Component {
       tabs.push(
         <Tab.Pane eventKey={artigo.id} key={`tab-${artigo.id}`}>
           <div className="float-right mb-2">
-            <Button variant="light" title="Ajustar acentuação" onClick={this.ajustar.bind(this, i)}>
+            <Button className="mr-2" variant="light" title="Ajustar acentuação" onClick={this.ajustar.bind(this, i)}>
+            <i className="fas fa-pen-fancy"></i>
+            </Button>
+            <Button variant="light" title="Formatar" onClick={this.formatar.bind(this, i)}>
               <i className="fas fa-font"></i>
             </Button>
           </div>
+          <Form.Control
+            as="input"
+            value={artigo.titulo || ''}
+            readOnly
+            className="mb-2"
+          />
           <Form.Control
             as="textarea"
             onChange={this.onTextoChanged.bind(this, i)}
             value={artigo.texto}
             rows="9"
+            onBlur={this.contarReferencias.bind(this, i)}
           />
-          
+          <Form.Text className="text-muted">
+            As referencias deve ser separado por uma quebra de linha entre si.
+          </Form.Text>
+          <div className="float-right mt-2">Total de referencias após formatação: {artigo.total || 0}</div>
         </Tab.Pane>
       )
       
@@ -324,9 +514,26 @@ class App extends Component {
         <Container>
           <Row>
             <Col>
-              <Button variant="success" title="Gerar e baixar CSV" onClick={this.gerarEBaixar}>
-                <i className="fas fa-download"></i> Gerar & Baixar
-              </Button>
+              <div className="mb-2">
+                <Button variant="success" title="Gerar e baixar CSV" onClick={this.gerarEBaixar}>
+                  <i className="fas fa-download"></i> Gerar & Baixar
+                </Button>
+              </div>
+              <div>
+                <Button variant="danger" title="Gerar e baixar CSV" onClick={this.limpar}>
+                  <i class="fas fa-trash"></i> Limpar
+                </Button>
+              </div>
+            </Col>
+            <Col>
+              <div className="form-group">
+                <label for="backup">Carregar CSV</label>
+                <input type="file" className="form-control-file" name="backup" id="backup" onChange={this.onCarregarCSV} />
+              </div>
+              <div className="form-group">
+                <label for="xmlsbsi">XML do SBSI</label>
+                <input type="file" className="form-control-file" name="xmlsbsi" id="xmlsbsi" onChange={this.onFileChanged} />
+              </div>
             </Col>
           </Row>
           <hr />
@@ -334,7 +541,7 @@ class App extends Component {
             <Col>
               <Tab.Container id="left-tabs-example" defaultActiveKey="1º artigo">
                 <Row>
-                  <Col sm={3}>
+                  <Col sm={3} style={{maxHeight: '350px', overflow: 'auto'}}>
                     <Nav variant="pills" className="flex-column">
                       {navs}
                     </Nav>
